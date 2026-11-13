@@ -1,4 +1,4 @@
-"""GeminiMCP CLI - Local PC Files MCP Bridge for Gemini Web.
+"""GeminiMCP - Minimal one-click local PC files MCP bridge for Gemini Web.
 
 Credits: Fikus & Hydrogen
 """
@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
 import shutil
 import socket
 import subprocess
@@ -23,7 +22,7 @@ from pathlib import Path
 
 from server import DEFAULT_ROOT, ServerState, run_server
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 GITHUB_REPO = "sikseven35-hue/Gemini-Mcp-servers"
 NGROK_TOKEN_URL = "https://dashboard.ngrok.com/get-started/your-authtoken"
 NGROK_DOWNLOAD_URL = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
@@ -45,54 +44,12 @@ def get_data_dir() -> Path:
     return data_dir
 
 
-def load_sessions() -> dict[str, dict]:
-    path = get_data_dir() / "sessions.json"
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def save_sessions(sessions: dict[str, dict]) -> None:
-    path = get_data_dir() / "sessions.json"
-    path.write_text(json.dumps(sessions, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
 def print_banner() -> None:
-    """Print CLI header and credits."""
-    print("=" * 66)
-    print(f"  GeminiMCP CLI v{VERSION}  |  Local PC Files Bridge for Gemini Web")
+    """Print header and credits."""
+    print("=" * 64)
+    print(f"  GeminiMCP v{VERSION}  |  Local PC Files Bridge for Gemini Web")
     print("  Credits: Fikus & Hydrogen")
-    print("=" * 66)
-
-
-def print_help() -> None:
-    """Print interactive slash commands."""
-    print(
-        """
-Available commands:
-  /web                 Open gemini.google.com & stream live MCP tool logs
-  /attach <path>       Attach file/photo/video (or drag & drop into window!)
-  /folder <path>       Switch active workspace folder live (keeps same MCP URL)
-  /session <name>      Switch to or create a named session (saves folder + exec)
-  /sessions            List all saved sessions
-  /session del <name>  Delete a saved session
-  /exec on | off       Enable or disable run_command tool live
-  /url                 Show & copy the active MCP Server URL to clipboard
-  /status              Show current session, folder, and tunnel status
-  /ls [subpath]        List files in the active workspace
-  /logs [count]        Show recent MCP tool calls from Gemini (default: 15)
-  /clear               Clear screen and reprint status
-  /update              Check GitHub Releases for a new version
-  /help                Show this help
-  /exit                Stop tunnel and exit
-
-Tip: Drag & drop any file, photo, or video into this window and press Enter!
-"""
-    )
+    print("=" * 64)
 
 
 def _parse_version(tag: str) -> tuple[int, ...]:
@@ -104,22 +61,18 @@ def _parse_version(tag: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
-def check_for_updates(interactive: bool = False) -> bool:
+def check_for_updates() -> bool:
     """Check GitHub Releases for a newer version and self-update the .exe if available."""
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
     try:
-        req = urllib.request.Request(api_url, headers={"User-Agent": f"GeminiMCP-CLI/{VERSION}"})
+        req = urllib.request.Request(api_url, headers={"User-Agent": f"GeminiMCP/{VERSION}"})
         with urllib.request.urlopen(req, timeout=3.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:
-        if interactive:
-            print(f"[!] Update check failed: {exc}")
+    except Exception:
         return False
 
     latest_tag = data.get("tag_name", "")
     if not latest_tag or _parse_version(latest_tag) <= _parse_version(VERSION):
-        if interactive:
-            print(f"[+] You are on the latest version (v{VERSION}).")
         return False
 
     exe_asset_url = None
@@ -165,7 +118,7 @@ def check_for_updates(interactive: bool = False) -> bool:
         f'del "%~f0"\r\n',
         encoding="utf-8",
     )
-    print("[+] Update downloaded! Restarting GeminiMCP CLI...")
+    print("[+] Update downloaded! Restarting...")
     detached = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen(
         ["cmd", "/c", str(updater_bat)],
@@ -235,13 +188,13 @@ def ensure_ngrok_token(ngrok_bin: Path, cli_token: str | None) -> bool:
     if has_ngrok_token():
         return True
 
-    print("\n" + "=" * 66)
+    print("\n" + "=" * 64)
     print("  AUTO-SETUP: ngrok Authtoken")
     print("  1. Opening ngrok dashboard in your browser...")
     print(f"     {NGROK_TOKEN_URL}")
     print("  2. Sign in (Google 1-click) and copy 'Your Authtoken'.")
     print("  3. Paste it below and press Enter.")
-    print("=" * 66)
+    print("=" * 64)
     try:
         webbrowser.open(NGROK_TOKEN_URL)
     except Exception:
@@ -292,267 +245,13 @@ def copy_to_clipboard(text: str) -> bool:
         return False
 
 
-def resolve_initial_state(args: argparse.Namespace, sessions: dict[str, dict]) -> ServerState:
-    """Resolve initial session and folder immediately without blocking on prompts."""
-    session_name = args.session or "default"
-    saved = sessions.get(session_name, {})
-
-    raw_path = args.root_flag or args.path or saved.get("root")
-    if raw_path and not str(raw_path).startswith("/"):
-        root_dir = Path(raw_path).expanduser().resolve()
-    else:
-        root_dir = (DEFAULT_ROOT if DEFAULT_ROOT.parent.exists() else Path.cwd()).resolve()
-
-    root_dir.mkdir(parents=True, exist_ok=True)
-    allow_exec = args.allow_exec or bool(saved.get("allow_exec", False))
-
-    sessions[session_name] = {"root": str(root_dir), "allow_exec": allow_exec}
-    save_sessions(sessions)
-    return ServerState(root_dir=root_dir, allow_exec=allow_exec, session_name=session_name)
-
-
-def print_status(state: ServerState, mcp_url: str) -> None:
-    print("\n" + "-" * 66)
-    print(f"  Session        : {state.session_name}")
-    print(f"  Workspace      : {state.get_root()}")
-    print(f"  run_command    : {'ON' if state.is_exec_enabled() else 'OFF (/exec on to enable)'}")
-    print(f"  MCP Server URL : {mcp_url}")
-    print("-" * 66)
-
-
-def attach_file(raw_path: str, state: ServerState) -> None:
-    """Copy a dragged-and-dropped file, photo, or video into workspace/_attachments/."""
-    cleaned = raw_path.strip().strip('"').strip("'")
-    if cleaned.startswith("& "):
-        cleaned = cleaned[2:].strip().strip('"').strip("'")
-    src = Path(cleaned).expanduser()
-    if not src.is_file():
-        print(f"[!] File not found: {cleaned}")
-        return
-
-    dest_dir = state.get_root() / "_attachments"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / src.name
-    counter = 1
-    while dest.exists():
-        dest = dest_dir / f"{src.stem}_{counter}{src.suffix}"
-        counter += 1
-
-    shutil.copy2(src, dest)
-    rel = dest.relative_to(state.get_root()).as_posix()
-    ext = src.suffix.lower()
-    if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
-        kind = "image (Gemini can inspect with read_image)"
-    elif ext in {".mp4", ".mov", ".mkv", ".webm", ".avi"}:
-        kind = "video"
-    else:
-        kind = "file"
-
-    copy_to_clipboard(rel)
-    state.record("attach", f"{rel} ({src.stat().st_size} bytes)")
-    print(f"[+] Attached {kind}: {rel} ({src.stat().st_size:,} bytes)")
-    print("    Relative path copied to clipboard! Mention it in your Gemini prompt.")
-
-
-def enter_web_mode(state: ServerState, mcp_url: str) -> None:
-    """Open Gemini Web and stream live MCP tool logs until Enter is pressed."""
-    copy_to_clipboard(mcp_url)
-    print("\n" + "=" * 66)
-    print(f"  WEB MODE  |  Opening {GEMINI_WEB_URL}")
-    print(f"  MCP URL copied: {mcp_url}")
-    print("  Live tool calls from Gemini will appear below.")
-    print("  Press [Enter] anytime to return to CLI command prompt...")
-    print("=" * 66)
-    try:
-        webbrowser.open(GEMINI_WEB_URL)
-    except Exception:
-        pass
-
-    state.on_log = lambda entry: print(f"  {entry}", flush=True)
-    try:
-        input()
-    except EOFError:
-        pass
-    finally:
-        state.on_log = None
-    print("[*] Returned to CLI mode.\n")
-
-
-def handle_command(
-    raw: str,
-    state: ServerState,
-    sessions: dict[str, dict],
-    mcp_url: str,
-) -> bool:
-    """Handle slash commands or drag-and-drop file paths. Returns False to exit."""
-    line = raw.strip()
-    if not line:
-        return True
-
-    if not line.startswith("/"):
-        candidate = line.strip('"').strip("'")
-        if candidate.startswith("& "):
-            candidate = candidate[2:].strip().strip('"').strip("'")
-        if Path(candidate).is_file():
-            attach_file(candidate, state)
-        else:
-            print("Type /help for commands (/folder, /session, /exec, /web), or drag & drop a file.")
-        return True
-
-    try:
-        parts = shlex.split(line, posix=False)
-    except ValueError:
-        parts = line.split()
-    cmd = parts[0].lower()
-    arg_str = line[len(parts[0]):].strip().strip('"')
-
-    if cmd in ("/exit", "/quit", "/q"):
-        return False
-
-    if cmd == "/help":
-        print_help()
-        return True
-
-    if cmd == "/update":
-        if check_for_updates(interactive=True):
-            return False
-        return True
-
-    if cmd == "/web":
-        enter_web_mode(state, mcp_url)
-        return True
-
-    if cmd == "/attach":
-        if not arg_str:
-            print("Usage: /attach <file_path>  (or drag & drop a file into this window)")
-            return True
-        attach_file(arg_str, state)
-        return True
-
-    if cmd == "/clear":
-        os.system("cls" if os.name == "nt" else "clear")
-        print_banner()
-        print_status(state, mcp_url)
-        return True
-
-    if cmd == "/status":
-        print_status(state, mcp_url)
-        return True
-
-    if cmd == "/url":
-        copied = copy_to_clipboard(mcp_url)
-        print(f"[+] MCP Server URL: {mcp_url}" + (" (copied to clipboard!)" if copied else ""))
-        return True
-
-    if cmd == "/folder":
-        if not arg_str:
-            print(f"[*] Current folder: {state.get_root()}")
-            print("    Usage: /folder C:\\path\\to\\project")
-            return True
-        new_root = state.set_root(Path(arg_str))
-        sessions[state.session_name] = {"root": str(new_root), "allow_exec": state.is_exec_enabled()}
-        save_sessions(sessions)
-        print(f"[+] Switched workspace -> {new_root} (MCP URL unchanged)")
-        return True
-
-    if cmd == "/sessions":
-        if not sessions:
-            print("[*] No saved sessions yet.")
-            return True
-        print("\nSaved sessions:")
-        for name, info in sorted(sessions.items()):
-            marker = "*" if name == state.session_name else " "
-            exec_tag = " [exec]" if info.get("allow_exec") else ""
-            print(f"  {marker} {name:<14} -> {info.get('root')}{exec_tag}")
-        print()
-        return True
-
-    if cmd == "/session":
-        if len(parts) < 2:
-            print(f"[*] Active session: {state.session_name}")
-            print("    Usage: /session <name>  |  /sessions  |  /session del <name>")
-            return True
-        if parts[1].lower() in ("del", "delete", "rm") and len(parts) >= 3:
-            target = parts[2]
-            if target == state.session_name:
-                print("[!] Cannot delete the currently active session.")
-            elif target in sessions:
-                del sessions[target]
-                save_sessions(sessions)
-                print(f"[+] Deleted session '{target}'.")
-            else:
-                print(f"[!] Session '{target}' not found.")
-            return True
-
-        target_name = parts[1]
-        if target_name in sessions:
-            info = sessions[target_name]
-            state.session_name = target_name
-            state.set_root(Path(info["root"]))
-            state.set_exec(bool(info.get("allow_exec", False)))
-            print(f"[+] Switched to session '{target_name}' -> {state.get_root()}")
-        else:
-            folder_input = input(f"Folder for new session '{target_name}' [{state.get_root()}]: ").strip().strip('"')
-            chosen = Path(folder_input) if folder_input else state.get_root()
-            state.session_name = target_name
-            resolved = state.set_root(chosen)
-            sessions[target_name] = {"root": str(resolved), "allow_exec": state.is_exec_enabled()}
-            save_sessions(sessions)
-            print(f"[+] Created & switched to session '{target_name}' -> {resolved}")
-        return True
-
-    if cmd == "/exec":
-        mode = parts[1].lower() if len(parts) >= 2 else ""
-        if mode in ("on", "1", "true"):
-            state.set_exec(True)
-        elif mode in ("off", "0", "false"):
-            state.set_exec(False)
-        else:
-            state.set_exec(not state.is_exec_enabled())
-        sessions[state.session_name] = {
-            "root": str(state.get_root()),
-            "allow_exec": state.is_exec_enabled(),
-        }
-        save_sessions(sessions)
-        print(f"[+] run_command is now {'ON' if state.is_exec_enabled() else 'OFF'}.")
-        return True
-
-    if cmd == "/ls":
-        sub = arg_str or "."
-        root = state.get_root()
-        target = (root / sub.lstrip("/\\")).resolve()
-        if not target.is_relative_to(root) or not target.exists():
-            print(f"[!] Invalid path: {sub}")
-            return True
-        for entry in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
-            tag = "[DIR] " if entry.is_dir() else "[FILE]"
-            print(f"  {tag} {entry.relative_to(root).as_posix()}")
-        return True
-
-    if cmd == "/logs":
-        count = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else 15
-        logs = state.recent_logs(count)
-        if not logs:
-            print("[*] No MCP tool calls recorded yet.")
-        else:
-            print("\nRecent MCP activity:")
-            for item in logs:
-                print(f"  {item}")
-            print()
-        return True
-
-    print(f"[!] Unknown command: {cmd}. Type /help for commands.")
-    return True
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="gemini-mcp",
-        description="Local PC files MCP bridge for Gemini Web (by Fikus & Hydrogen).",
+        description="One-click local PC files MCP bridge for Gemini Web (by Fikus & Hydrogen).",
     )
     parser.add_argument("path", nargs="?", help="Folder path to expose to Gemini")
     parser.add_argument("--root", dest="root_flag", help="Folder path (alternative to positional path)")
-    parser.add_argument("--session", help="Named session to load or create (default: default)")
     parser.add_argument("--port", type=int, default=8000, help="Local MCP server port (default: 8000)")
     parser.add_argument("--token", help="ngrok authtoken (saved for future runs)")
     parser.add_argument("--allow-exec", action="store_true", help="Enable run_command tool")
@@ -567,7 +266,7 @@ def main() -> int:
     args = parse_args()
 
     if not args.no_update_check:
-        if check_for_updates(interactive=False):
+        if check_for_updates():
             return 0
 
     ngrok_bin: Path | None = None
@@ -580,8 +279,18 @@ def main() -> int:
             print("[!] Cancelled: ngrok authtoken is required for public HTTPS URL.")
             return 1
 
-    sessions = load_sessions()
-    state = resolve_initial_state(args, sessions)
+    raw_path = args.root_flag or args.path
+    if raw_path:
+        root_dir = Path(raw_path).expanduser().resolve()
+    else:
+        root_dir = (DEFAULT_ROOT if DEFAULT_ROOT.parent.exists() else Path.cwd()).resolve()
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    state = ServerState(
+        root_dir=root_dir,
+        allow_exec=args.allow_exec,
+        on_log=lambda entry: print(f"  {entry}", flush=True),
+    )
 
     print(f"\n[+] Starting MCP server on http://127.0.0.1:{args.port}/mcp ...")
     server_error: list[BaseException] = []
@@ -620,29 +329,27 @@ def main() -> int:
             if copy_to_clipboard(mcp_url):
                 print("[+] MCP URL copied to clipboard!")
 
-        print_status(state, mcp_url)
+        print("\n" + "-" * 64)
+        print(f"  Workspace      : {state.get_root()}")
+        print(f"  MCP Server URL : {mcp_url}")
+        print("-" * 64)
 
         if not args.no_open:
-            print(f"[+] Opening {GEMINI_WEB_URL} in your browser...")
+            print(f"[+] Opening {GEMINI_WEB_URL} ...")
             try:
                 webbrowser.open(GEMINI_WEB_URL)
             except Exception:
                 pass
 
-        print("Paste the URL into Gemini -> Settings -> Connected Apps -> + (Next -> Connect).")
-        print("Type /help for commands (/folder, /session, /exec, /web, /logs, /exit).\n")
+        print("\nPaste the URL into Gemini -> Settings -> Connected Apps -> + (Next -> Connect).")
+        print("Live MCP activity (press Ctrl+C or close window to stop):\n")
 
         while thread.is_alive() and (ngrok_proc is None or ngrok_proc.poll() is None):
-            try:
-                raw = input(f"gemini-mcp [{state.session_name}]> ")
-            except EOFError:
-                break
-            if not handle_command(raw, state, sessions, mcp_url):
-                break
+            time.sleep(1.0)
         return 0
 
     except KeyboardInterrupt:
-        print("\n[*] Stopping GeminiMCP CLI...")
+        print("\n[*] Stopping GeminiMCP...")
         return 0
     finally:
         if ngrok_proc and ngrok_proc.poll() is None:
