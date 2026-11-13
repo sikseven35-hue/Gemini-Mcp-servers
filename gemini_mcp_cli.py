@@ -24,7 +24,7 @@ from pathlib import Path
 from gemini_chat import DEFAULT_MODELS, fetch_available_models, send_chat_message
 from server import DEFAULT_ROOT, ServerState, run_server
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 GITHUB_REPO = "sikseven35-hue/Gemini-Mcp-servers"
 NGROK_TOKEN_URL = "https://dashboard.ngrok.com/get-started/your-authtoken"
 AI_STUDIO_KEY_URL = "https://aistudio.google.com/apikey"
@@ -152,24 +152,29 @@ def check_for_updates(interactive: bool = False) -> bool:
         return False
 
     updater_bat = get_data_dir() / "apply_update.bat"
-    pid = os.getpid()
     updater_bat.write_text(
         f'@echo off\r\n'
-        f':wait\r\n'
-        f'tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL\r\n'
-        f'if not errorlevel 1 (\r\n'
-        f'  timeout /t 1 /nobreak >NUL\r\n'
-        f'  goto wait\r\n'
+        f'setlocal\r\n'
+        f'set "NEW={new_exe}"\r\n'
+        f'set "CUR={current_exe}"\r\n'
+        f'set /a tries=0\r\n'
+        f':retry\r\n'
+        f'timeout /t 1 /nobreak >NUL\r\n'
+        f'move /y "%NEW%" "%CUR%" >NUL 2>&1\r\n'
+        f'if exist "%NEW%" (\r\n'
+        f'  set /a tries+=1\r\n'
+        f'  if %tries% LSS 20 goto retry\r\n'
         f')\r\n'
-        f'move /y "{new_exe}" "{current_exe}" >NUL\r\n'
-        f'start "" "{current_exe}"\r\n'
+        f'start "" /D "{current_exe.parent}" "{current_exe}"\r\n'
         f'del "%~f0"\r\n',
         encoding="utf-8",
     )
     print("[+] Update downloaded! Restarting GeminiMCP CLI...")
+    detached = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen(
         ["cmd", "/c", str(updater_bat)],
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        creationflags=detached,
+        close_fds=True,
     )
     return True
 
