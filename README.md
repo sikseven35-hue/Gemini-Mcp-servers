@@ -1,4 +1,4 @@
-# GeminiMCP CLI (`v0.1.0`)
+# GeminiMCP CLI (`v0.2.0`)
 
 **Credits:** Fikus & Hydrogen
 
@@ -9,7 +9,8 @@ Allows Gemini web models (such as Hydrogen, Argon, etc.) to list, read, search, 
 
 ## Features
 - **Single `.exe` binary** — runs on Windows without needing Python installed.
-- **Auto-configured `ngrok`** — automatically downloads `ngrok.exe` on first run and saves your free authtoken.
+- **Auto-configured `ngrok` setup wizard** — on first launch, automatically downloads `ngrok.exe`, opens your browser to the ngrok token page, and saves your token.
+- **Built-in Auto-Update (`/update`)** — checks GitHub Releases on startup and updates `gemini-mcp.exe` automatically.
 - **Live workspace switching (`/folder`)** — switch folders on the fly **without reconnecting the MCP URL in Gemini**.
 - **Named sessions (`/session`, `/sessions`)** — save multiple projects (folder + `/exec` permission) and switch between them with one command.
 - **Web Vibe-Coding Mode (`/web`)** — opens `gemini.google.com`, copies the MCP URL, and streams live tool-call logs to your terminal.
@@ -60,6 +61,7 @@ Allows Gemini web models (such as Hydrogen, Argon, etc.) to list, read, search, 
 | `/logs [N]` | Show the last `N` MCP tool calls from Gemini |
 | `/status` | Show active session, workspace folder, `/exec` state, and URL |
 | `/clear` | Clear the terminal screen |
+| `/update` | Check GitHub Releases and auto-update `gemini-mcp.exe` |
 | `/help` | Show available commands |
 | `/exit` | Stop the tunnel and server |
 

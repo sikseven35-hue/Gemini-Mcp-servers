@@ -23,7 +23,9 @@ from pathlib import Path
 
 from server import DEFAULT_ROOT, ServerState, run_server
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
+GITHUB_REPO = "sikseven35-hue/Gemini-Mcp-servers"
+NGROK_TOKEN_URL = "https://dashboard.ngrok.com/get-started/your-authtoken"
 NGROK_DOWNLOAD_URL = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
 
 
@@ -85,6 +87,7 @@ Available commands:
   /ls [subpath]        List files in the active workspace
   /logs [count]        Show recent MCP tool calls from Gemini (default: 15)
   /clear               Clear screen and reprint status
+  /update              Check GitHub Releases for a new version
   /help                Show this help
   /exit                Stop tunnel and exit
 
@@ -121,35 +124,132 @@ def find_or_download_ngrok() -> Path | None:
     return None
 
 
-def ensure_ngrok_token(ngrok_bin: Path, cli_token: str | None) -> bool:
-    """Ensure ngrok has an authtoken configured."""
-    if cli_token:
-        res = subprocess.run(
-            [str(ngrok_bin), "config", "add-authtoken", cli_token.strip()],
-            capture_output=True,
-            text=True,
-        )
-        if res.returncode != 0:
-            print(f"[!] Failed to save ngrok token: {res.stderr or res.stdout}")
-            return False
-        print("[+] ngrok authtoken saved.")
-        return True
+def _parse_version(tag: str) -> tuple[int, ...]:
+    cleaned = tag.strip().lstrip("vV")
+    parts = []
+    for part in cleaned.split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
 
+
+def check_for_updates(interactive: bool = False) -> bool:
+    """Check GitHub Releases for a newer version and self-update the .exe if available."""
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    try:
+        req = urllib.request.Request(api_url, headers={"User-Agent": f"GeminiMCP-CLI/{VERSION}"})
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        if interactive:
+            print(f"[!] Update check failed: {exc}")
+        return False
+
+    latest_tag = data.get("tag_name", "")
+    if not latest_tag or _parse_version(latest_tag) <= _parse_version(VERSION):
+        if interactive:
+            print(f"[+] You are on the latest version (v{VERSION}).")
+        return False
+
+    exe_asset_url = None
+    for asset in data.get("assets", []):
+        if asset.get("name", "").lower() == "gemini-mcp.exe":
+            exe_asset_url = asset.get("browser_download_url")
+            break
+
+    print(f"\n[*] New version available: {latest_tag} (current: v{VERSION})")
+    if not getattr(sys, "frozen", False) or not exe_asset_url:
+        print(f"    Download at: {data.get('html_url', f'https://github.com/{GITHUB_REPO}/releases')}")
+        return False
+
+    choice = input("    Download and install update now? [Y/n]: ").strip().lower()
+    if choice in ("n", "no"):
+        return False
+
+    current_exe = Path(sys.executable).resolve()
+    new_exe = current_exe.with_name("gemini-mcp.exe.new")
+    print(f"[*] Downloading {latest_tag}...")
+    try:
+        urllib.request.urlretrieve(exe_asset_url, new_exe)
+    except Exception as exc:
+        print(f"[!] Download failed: {exc}")
+        new_exe.unlink(missing_ok=True)
+        return False
+
+    updater_bat = get_data_dir() / "apply_update.bat"
+    pid = os.getpid()
+    updater_bat.write_text(
+        f'@echo off\r\n'
+        f':wait\r\n'
+        f'tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL\r\n'
+        f'if not errorlevel 1 (\r\n'
+        f'  timeout /t 1 /nobreak >NUL\r\n'
+        f'  goto wait\r\n'
+        f')\r\n'
+        f'move /y "{new_exe}" "{current_exe}" >NUL\r\n'
+        f'start "" "{current_exe}"\r\n'
+        f'del "%~f0"\r\n',
+        encoding="utf-8",
+    )
+    print("[+] Update downloaded! Restarting GeminiMCP CLI...")
+    subprocess.Popen(
+        ["cmd", "/c", str(updater_bat)],
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    return True
+
+
+def has_ngrok_token() -> bool:
+    """Return True if an ngrok authtoken is already saved in ngrok.yml."""
     local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
     cfg_candidates = [
         local_app_data / "ngrok" / "ngrok.yml",
         Path.home() / ".config" / "ngrok" / "ngrok.yml",
         Path.home() / ".ngrok2" / "ngrok.yml",
     ]
-    if any(p.is_file() and "authtoken:" in p.read_text(encoding="utf-8", errors="ignore") for p in cfg_candidates):
+    return any(
+        p.is_file() and "authtoken:" in p.read_text(encoding="utf-8", errors="ignore")
+        for p in cfg_candidates
+    )
+
+
+def ensure_ngrok_token(ngrok_bin: Path, cli_token: str | None) -> bool:
+    """Ensure ngrok has a valid authtoken, guiding the user automatically if missing."""
+    if cli_token:
+        token = cli_token.strip()
+        res = subprocess.run(
+            [str(ngrok_bin), "config", "add-authtoken", token],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0 and "_" in token:
+            print("[+] ngrok authtoken saved.")
+            return True
+        print(f"[!] Invalid ngrok authtoken: {(res.stderr or res.stdout).strip()}")
+        return False
+
+    if has_ngrok_token():
         return True
 
-    print("\n[!] ngrok authtoken is not configured yet.")
-    print("    Get a free token at: https://dashboard.ngrok.com/get-started/your-authtoken")
-    token = input("    Paste your ngrok authtoken (or press Enter to cancel): ").strip()
-    if not token:
-        return False
-    return ensure_ngrok_token(ngrok_bin, token)
+    print("\n" + "=" * 66)
+    print("  FIRST-TIME SETUP: ngrok Authtoken")
+    print("  1. Opening ngrok dashboard in your browser...")
+    print(f"     {NGROK_TOKEN_URL}")
+    print("  2. Sign in (Google 1-click) and copy 'Your Authtoken'.")
+    print("  3. Paste it below and press Enter.")
+    print("=" * 66)
+    try:
+        webbrowser.open(NGROK_TOKEN_URL)
+    except Exception:
+        pass
+
+    while True:
+        token = input("\nPaste your ngrok authtoken (or Enter to cancel): ").strip()
+        if not token:
+            return False
+        if ensure_ngrok_token(ngrok_bin, token):
+            return True
+        print("[!] Please copy the full Authtoken (looks like 2x..._... ) and try again.")
 
 
 def wait_for_local_port(host: str, port: int, timeout_sec: float = 10.0) -> bool:
@@ -314,6 +414,11 @@ def handle_command(
         print_help()
         return True
 
+    if cmd == "/update":
+        if check_for_updates(interactive=True):
+            return False
+        return True
+
     if cmd == "/web":
         enter_web_mode(state, mcp_url)
         return True
@@ -461,12 +566,32 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run local MCP server only without starting ngrok",
     )
+    parser.add_argument(
+        "--no-update-check",
+        action="store_true",
+        help="Skip checking GitHub for updates on startup",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     print_banner()
     args = parse_args()
+
+    if not args.no_update_check:
+        if check_for_updates(interactive=False):
+            return 0
+
+    ngrok_bin: Path | None = None
+    if not args.no_tunnel:
+        ngrok_bin = find_or_download_ngrok()
+        if not ngrok_bin:
+            print("[!] ngrok.exe unavailable.")
+            return 1
+        if not ensure_ngrok_token(ngrok_bin, args.token):
+            print("[!] Cancelled: ngrok authtoken is required for public HTTPS URL.")
+            return 1
+
     sessions = load_sessions()
     state = resolve_initial_state(args, sessions)
 
@@ -492,14 +617,7 @@ def main() -> int:
         if args.no_tunnel:
             mcp_url = f"http://127.0.0.1:{args.port}/mcp"
         else:
-            ngrok_bin = find_or_download_ngrok()
-            if not ngrok_bin:
-                print("[!] ngrok.exe unavailable.")
-                return 1
-            if not ensure_ngrok_token(ngrok_bin, args.token):
-                print("[!] Cancelled: ngrok authtoken is required for public HTTPS URL.")
-                return 1
-
+            assert ngrok_bin is not None
             print("[+] Starting ngrok HTTPS tunnel...")
             ngrok_proc = subprocess.Popen(
                 [str(ngrok_bin), "http", str(args.port), "--log", "stdout"],
