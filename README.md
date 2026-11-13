@@ -1,4 +1,4 @@
-# GeminiMCP (`v0.5.0`)
+# GeminiMCP (`v0.5.1`)
 
 **Credits:** Fikus & Hydrogen
 
@@ -11,6 +11,7 @@ A minimal, one-click Windows launcher that starts a local **MCP (Model Context P
 - **Auto-setup `ngrok` wizard** — downloads `ngrok.exe` on first run, opens your browser to the token page, and saves your token.
 - **Built-in Auto-Update** — checks GitHub Releases on startup and updates `gemini-mcp.exe` in place.
 - **Live activity log** — shows every file read/write/edit call from Gemini in real time.
+- **Live folder switching (`/folder <path>`)** — switch your workspace folder anytime without reconnecting the MCP URL in Gemini.
 
 ---
 

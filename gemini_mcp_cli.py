@@ -22,7 +22,7 @@ from pathlib import Path
 
 from server import DEFAULT_ROOT, ServerState, run_server
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 GITHUB_REPO = "sikseven35-hue/Gemini-Mcp-servers"
 NGROK_TOKEN_URL = "https://dashboard.ngrok.com/get-started/your-authtoken"
 NGROK_DOWNLOAD_URL = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
@@ -342,10 +342,26 @@ def main() -> int:
                 pass
 
         print("\nPaste the URL into Gemini -> Settings -> Connected Apps -> + (Next -> Connect).")
-        print("Live MCP activity (press Ctrl+C or close window to stop):\n")
+        print("Type /folder <path> anytime to switch folder, or Ctrl+C to stop.\n")
 
         while thread.is_alive() and (ngrok_proc is None or ngrok_proc.poll() is None):
-            time.sleep(1.0)
+            try:
+                raw = input().strip()
+            except EOFError:
+                break
+            if not raw:
+                continue
+            if raw.lower() in ("/exit", "/quit"):
+                break
+            if raw.lower().startswith("/folder"):
+                new_path = raw[7:].strip().strip('"')
+                if not new_path:
+                    print(f"[*] Current folder: {state.get_root()}  |  Usage: /folder C:\\path\\to\\project")
+                else:
+                    resolved = state.set_root(Path(new_path))
+                    print(f"[+] Switched folder -> {resolved} (MCP URL unchanged)")
+            else:
+                print("Available command: /folder <path>  (or Ctrl+C to stop)")
         return 0
 
     except KeyboardInterrupt:
