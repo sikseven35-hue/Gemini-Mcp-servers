@@ -2,74 +2,75 @@
 
 **Credits:** Fikus & Hydrogen
 
-Интерактивный CLI-мост, который подключает любую папку на вашем ПК к веб-версии **Gemini (`gemini.google.com`)** через **MCP (Model Context Protocol)** и **ngrok**.  
-Позволяет моделям на сайте Gemini (включая Hydrogen / Argon и другие) читать, искать, создавать, редактировать файлы и при желании выполнять команды прямо в вашем проекте.
+An interactive CLI bridge that connects any local folder on your PC to **Gemini Web (`gemini.google.com`)** via **MCP (Model Context Protocol)** and **ngrok**.  
+Allows Gemini web models (such as Hydrogen, Argon, etc.) to list, read, search, create, edit files, inspect images, and optionally run shell commands directly inside your project.
 
 ---
 
-## Возможности
-- **Один `.exe` файл** — работает без установленного Python на ПК.
-- **Авто-настройка `ngrok`** — при первом запуске сам скачивает `ngrok.exe` и сохраняет ваш бесплатный токен.
-- **Живое переключение проектов (`/folder`)** — меняйте папку на лету, **не переподключая URL в Gemini**.
-- **Сессии (`/session`, `/sessions`)** — сохраняйте разные проекты (папка + права `/exec`) и переключайтесь между ними одной командой.
-- **Терминал по требованию (`/exec on` / `off`)** — включайте или выключайте `run_command` в любой момент прямо во время работы.
-- **Мониторинг (`/logs`, `/ls`, `/status`)** — видно в реальном времени, какие файлы читает и правит Gemini.
+## Features
+- **Single `.exe` binary** — runs on Windows without needing Python installed.
+- **Auto-configured `ngrok`** — automatically downloads `ngrok.exe` on first run and saves your free authtoken.
+- **Live workspace switching (`/folder`)** — switch folders on the fly **without reconnecting the MCP URL in Gemini**.
+- **Named sessions (`/session`, `/sessions`)** — save multiple projects (folder + `/exec` permission) and switch between them with one command.
+- **Web Vibe-Coding Mode (`/web`)** — opens `gemini.google.com`, copies the MCP URL, and streams live tool-call logs to your terminal.
+- **Drag & Drop attachments (`/attach`)** — drag and drop any file, photo, or video into the CLI window to copy it into `_attachments/` (with `read_image` support for images).
+- **On-demand terminal (`/exec on` / `off`)** — toggle `run_command` anytime during a session.
 
 ---
 
-## Быстрый старт (через готовый `.exe`)
+## Quick Start (Prebuilt `.exe`)
 
-1. Скачайте **`gemini-mcp.exe`** из раздела [Releases](../../releases).
-2. Получите бесплатный `ngrok` authtoken на [dashboard.ngrok.com/get-started/your-authtoken](https://dashboard.ngrok.com/get-started/your-authtoken) (вход через Google в 1 клик).
-3. Запустите `gemini-mcp.exe` (двойным кликом или из терминала):
+1. Download **`gemini-mcp.exe`** from [Releases](../../releases/latest).
+2. Get a free `ngrok` authtoken at [dashboard.ngrok.com/get-started/your-authtoken](https://dashboard.ngrok.com/get-started/your-authtoken) (1-click Google sign-in).
+3. Run `gemini-mcp.exe` (double-click or from terminal):
    ```powershell
    gemini-mcp.exe "C:\Projects\MyApp"
    ```
-   При первом запуске программа сама скачает `ngrok` и попросит вставить токен, после чего **скопирует готовую `https://.../mcp` ссылку в буфер обмена**.
+   On first launch, it downloads `ngrok.exe` to `%LOCALAPPDATA%\GeminiMCP`, asks for your token once, and **automatically copies the `https://.../mcp` URL to your clipboard**.
 
 ---
 
-## Как подключить к сайту Gemini (`gemini.google.com`)
+## Connecting to Gemini Web (`gemini.google.com`)
 
-1. Откройте [gemini.google.com](https://gemini.google.com/) (в настройках аккаунта должна быть включена **История действий / Keep Activity**).
-2. Перейдите в **Меню → Настройки → Подключённые приложения (Connected Apps)**.
-3. Нажмите **`+` (или `+ Інша` / Custom)** в правом верхнем углу.
-4. Вставьте скопированную ссылку вида:
+1. Open [gemini.google.com](https://gemini.google.com/) (make sure **Gemini Apps Activity / Keep Activity** is enabled in your Google Account).
+2. Go to **Menu → Settings → Connected Apps**.
+3. Click **`+`** (Custom / Add app) in the top-right corner.
+4. Paste the copied MCP Server URL:
    ```text
    https://xxxx-xxxx.ngrok-free.dev/mcp
    ```
-   Поля **Client ID** и **Client Secret** оставьте пустыми → нажмите **Next / Далі** → **Connect / Підключити**.
-5. В чате вызовите `@Local PC Files GeminiMCP` и попросите прочитать или создать файлы!
+   Leave **Client ID** and **Client Secret** blank → click **Next** → **Connect**.
+5. In any chat, mention `@Local PC Files GeminiMCP` and ask Gemini to inspect, create, or edit files in your folder!
 
 ---
 
-## Команды внутри CLI (для вайбкодинга)
+## Interactive CLI Commands
 
-| Команда | Что делает |
+| Command | Description |
 | :--- | :--- |
-| `/web` | Режим вайбкодинга на сайте: открывает `gemini.google.com`, копирует MCP URL и стримит live-логи в консоль (нажмите `Enter` для возврата в CLI) |
-| `/attach <путь>` | Прикрепить файл, фото или видео в `_attachments/` (можно просто **перетащить файл (Drag & Drop)** в окно CLI и нажать `Enter`) |
-| `/folder <путь>` | Переключить рабочую папку на лету (URL в Gemini остаётся тем же) |
-| `/session <имя>` | Переключиться на сессию или создать новую (запоминает папку и `/exec`) |
-| `/sessions` | Показать список всех сохранённых сессий |
-| `/session del <имя>` | Удалить сохранённую сессию |
-| `/exec on` / `/exec off` | Включить или выключить выполнение shell-команд (`run_command`) |
-| `/url` | Показать и снова скопировать `https://.../mcp` в буфер обмена |
-| `/ls [подпапка]` | Показать файлы в текущей рабочей папке |
-| `/logs [N]` | Показать последние `N` вызовов инструментов от Gemini |
-| `/status` | Показать активную сессию, папку, статус `/exec` и URL |
-| `/clear` | Очистить экран |
-| `/help` | Справка по командам |
-| `/exit` | Остановить туннель и сервер |
+| `/web` | Open `gemini.google.com`, copy MCP URL, and stream live MCP tool calls (press `Enter` to return to CLI) |
+| `/attach <path>` | Copy a file, photo, or video into `_attachments/` (or simply **drag & drop** it into the terminal and press `Enter`) |
+| `/folder <path>` | Switch the active workspace folder live (keeps the same MCP URL) |
+| `/session <name>` | Switch to or create a named session (remembers folder + `/exec` setting) |
+| `/sessions` | List all saved sessions |
+| `/session del <name>` | Delete a saved session |
+| `/exec on` / `/exec off` | Enable or disable `run_command` tool live |
+| `/url` | Display and copy the active `https://.../mcp` URL to clipboard |
+| `/ls [subpath]` | List files in the active workspace |
+| `/logs [N]` | Show the last `N` MCP tool calls from Gemini |
+| `/status` | Show active session, workspace folder, `/exec` state, and URL |
+| `/clear` | Clear the terminal screen |
+| `/help` | Show available commands |
+| `/exit` | Stop the tunnel and server |
 
-### Флаги запуска
+### Startup Flags
 ```powershell
-gemini-mcp.exe [путь] [--session имя] [--port 8000] [--token NGROK_TOKEN] [--allow-exec] [--no-tunnel]
+gemini-mcp.exe [path] [--session name] [--port 8000] [--token NGROK_TOKEN] [--allow-exec] [--no-tunnel]
 ```
 
 ---
 
-## Запуск и сборка из исходников
+## Running & Building from Source
 
 ```powershell
 cd source
@@ -78,7 +79,7 @@ python -m venv .venv
 .\.venv\Scripts\python gemini_mcp_cli.py
 ```
 
-Сборка в `.exe` (PyInstaller):
+Build standalone `.exe` with PyInstaller:
 ```powershell
 .\.venv\Scripts\pip install pyinstaller
 .\.venv\Scripts\pyinstaller --noconfirm --onefile --console --name gemini-mcp `
@@ -91,7 +92,7 @@ python -m venv .venv
 
 ---
 
-## Безопасность
-- Все файловые операции жёстко ограничены выбранной корневой папкой (защита от `../` path traversal).
-- Инструмент `run_command` **выключен по умолчанию** — включается только явно через `/exec on` или `--allow-exec`.
-- Туннель работает только пока открыто окно `gemini-mcp.exe`.
+## Security
+- All file operations (`list_files`, `read_file`, `read_image`, `write_file`, `edit_file`, `delete_file`, `search_files`) are strictly sandboxed inside the active workspace folder (path traversal `../` is blocked).
+- `run_command` is **disabled by default** and only runs when explicitly enabled via `/exec on` or `--allow-exec`.
+- The tunnel stays active only while `gemini-mcp.exe` is running.
