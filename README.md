@@ -1,4 +1,4 @@
-# GeminiMCP CLI (`v0.2.0`)
+# GeminiMCP CLI (`v0.3.0`)
 
 **Credits:** Fikus & Hydrogen
 
@@ -49,6 +49,9 @@ Allows Gemini web models (such as Hydrogen, Argon, etc.) to list, read, search, 
 
 | Command | Description |
 | :--- | :--- |
+| `/model [name]` | Pick a Gemini model from the list to vibe-code directly in CLI |
+| `/apikey [key]` | Set/update your Google AI Studio API key (for `/model` CLI chat) |
+| `/new` | Clear CLI chat history |
 | `/web` | Open `gemini.google.com`, copy MCP URL, and stream live MCP tool calls (press `Enter` to return to CLI) |
 | `/attach <path>` | Copy a file, photo, or video into `_attachments/` (or simply **drag & drop** it into the terminal and press `Enter`) |
 | `/folder <path>` | Switch the active workspace folder live (keeps the same MCP URL) |
