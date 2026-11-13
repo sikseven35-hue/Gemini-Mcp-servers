@@ -1,4 +1,4 @@
-"""GeminiMCP CLI - Interactive vibe-coding MCP bridge & CLI agent for Gemini.
+"""GeminiMCP CLI - Local PC Files MCP Bridge for Gemini Web.
 
 Credits: Fikus & Hydrogen
 """
@@ -21,14 +21,13 @@ import webbrowser
 import zipfile
 from pathlib import Path
 
-from gemini_chat import DEFAULT_MODELS, fetch_available_models, send_chat_message
 from server import DEFAULT_ROOT, ServerState, run_server
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 GITHUB_REPO = "sikseven35-hue/Gemini-Mcp-servers"
 NGROK_TOKEN_URL = "https://dashboard.ngrok.com/get-started/your-authtoken"
-AI_STUDIO_KEY_URL = "https://aistudio.google.com/apikey"
 NGROK_DOWNLOAD_URL = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
+GEMINI_WEB_URL = "https://gemini.google.com/"
 
 
 def get_app_dir() -> Path:
@@ -46,8 +45,8 @@ def get_data_dir() -> Path:
     return data_dir
 
 
-def load_json_file(filename: str) -> dict:
-    path = get_data_dir() / filename
+def load_sessions() -> dict[str, dict]:
+    path = get_data_dir() / "sessions.json"
     if not path.is_file():
         return {}
     try:
@@ -57,15 +56,15 @@ def load_json_file(filename: str) -> dict:
         return {}
 
 
-def save_json_file(filename: str, data: dict) -> None:
-    path = get_data_dir() / filename
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+def save_sessions(sessions: dict[str, dict]) -> None:
+    path = get_data_dir() / "sessions.json"
+    path.write_text(json.dumps(sessions, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def print_banner() -> None:
     """Print CLI header and credits."""
     print("=" * 66)
-    print(f"  GeminiMCP CLI v{VERSION}  |  Vibe-Coding CLI & Gemini Web Bridge")
+    print(f"  GeminiMCP CLI v{VERSION}  |  Local PC Files Bridge for Gemini Web")
     print("  Credits: Fikus & Hydrogen")
     print("=" * 66)
 
@@ -75,26 +74,23 @@ def print_help() -> None:
     print(
         """
 Available commands:
-  /model [name]        Choose Gemini model to vibe-code with directly in CLI
-  /apikey [key]        Set or update Google AI Studio API key (for /model chat)
-  /web                 Switch to Web mode (opens gemini.google.com + live logs)
-  /attach <path>       Attach file/photo/video (or just drag & drop into window!)
+  /web                 Open gemini.google.com & stream live MCP tool logs
+  /attach <path>       Attach file/photo/video (or drag & drop into window!)
   /folder <path>       Switch active workspace folder live (keeps same MCP URL)
   /session <name>      Switch to or create a named session (saves folder + exec)
   /sessions            List all saved sessions
   /session del <name>  Delete a saved session
   /exec on | off       Enable or disable run_command tool live
-  /new                 Reset CLI chat conversation history
   /url                 Show & copy the active MCP Server URL to clipboard
-  /status              Show current session, model, folder, and tunnel status
+  /status              Show current session, folder, and tunnel status
   /ls [subpath]        List files in the active workspace
-  /logs [count]        Show recent MCP tool calls (default: 15)
+  /logs [count]        Show recent MCP tool calls from Gemini (default: 15)
   /clear               Clear screen and reprint status
   /update              Check GitHub Releases for a new version
   /help                Show this help
   /exit                Stop tunnel and exit
 
-Tip: Type any message to chat with the selected /model, or drag & drop a file!
+Tip: Drag & drop any file, photo, or video into this window and press Enter!
 """
     )
 
@@ -260,31 +256,6 @@ def ensure_ngrok_token(ngrok_bin: Path, cli_token: str | None) -> bool:
         print("[!] Please copy the full Authtoken (looks like 2x..._...) and try again.")
 
 
-def ensure_gemini_api_key(config: dict) -> str | None:
-    """Ensure a Google AI Studio API key is saved in config.json for /model CLI chat."""
-    if config.get("gemini_api_key"):
-        return str(config["gemini_api_key"])
-
-    print("\n" + "=" * 66)
-    print("  CLI MODEL SETUP: Google AI Studio API Key")
-    print("  1. Opening https://aistudio.google.com/apikey in your browser...")
-    print("  2. Click 'Create API key' (free) and copy it.")
-    print("  3. Paste it below and press Enter.")
-    print("=" * 66)
-    try:
-        webbrowser.open(AI_STUDIO_KEY_URL)
-    except Exception:
-        pass
-
-    key = input("\nPaste your Gemini API key (or Enter to cancel): ").strip()
-    if not key:
-        return None
-    config["gemini_api_key"] = key
-    save_json_file("config.json", config)
-    print("[+] Gemini API key saved.")
-    return key
-
-
 def wait_for_local_port(host: str, port: int, timeout_sec: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
@@ -336,22 +307,20 @@ def resolve_initial_state(args: argparse.Namespace, sessions: dict[str, dict]) -
     allow_exec = args.allow_exec or bool(saved.get("allow_exec", False))
 
     sessions[session_name] = {"root": str(root_dir), "allow_exec": allow_exec}
-    save_json_file("sessions.json", sessions)
+    save_sessions(sessions)
     return ServerState(root_dir=root_dir, allow_exec=allow_exec, session_name=session_name)
 
 
-def print_status(state: ServerState, mcp_url: str, config: dict) -> None:
-    model = config.get("model", DEFAULT_MODELS[1])
+def print_status(state: ServerState, mcp_url: str) -> None:
     print("\n" + "-" * 66)
     print(f"  Session        : {state.session_name}")
     print(f"  Workspace      : {state.get_root()}")
-    print(f"  CLI Model      : {model} (/model to change)")
     print(f"  run_command    : {'ON' if state.is_exec_enabled() else 'OFF (/exec on to enable)'}")
     print(f"  MCP Server URL : {mcp_url}")
     print("-" * 66)
 
 
-def attach_file(raw_path: str, state: ServerState, pending_images: list[Path]) -> None:
+def attach_file(raw_path: str, state: ServerState) -> None:
     """Copy a dragged-and-dropped file, photo, or video into workspace/_attachments/."""
     cleaned = raw_path.strip().strip('"').strip("'")
     if cleaned.startswith("& "):
@@ -373,8 +342,7 @@ def attach_file(raw_path: str, state: ServerState, pending_images: list[Path]) -
     rel = dest.relative_to(state.get_root()).as_posix()
     ext = src.suffix.lower()
     if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
-        kind = "image (attached for CLI & Gemini read_image)"
-        pending_images.append(dest)
+        kind = "image (Gemini can inspect with read_image)"
     elif ext in {".mp4", ".mov", ".mkv", ".webm", ".avi"}:
         kind = "video"
     else:
@@ -383,20 +351,20 @@ def attach_file(raw_path: str, state: ServerState, pending_images: list[Path]) -
     copy_to_clipboard(rel)
     state.record("attach", f"{rel} ({src.stat().st_size} bytes)")
     print(f"[+] Attached {kind}: {rel} ({src.stat().st_size:,} bytes)")
-    print("    Relative path copied to clipboard!")
+    print("    Relative path copied to clipboard! Mention it in your Gemini prompt.")
 
 
 def enter_web_mode(state: ServerState, mcp_url: str) -> None:
     """Open Gemini Web and stream live MCP tool logs until Enter is pressed."""
     copy_to_clipboard(mcp_url)
     print("\n" + "=" * 66)
-    print("  WEB VIBE-CODING MODE  |  Opening https://gemini.google.com/")
+    print(f"  WEB MODE  |  Opening {GEMINI_WEB_URL}")
     print(f"  MCP URL copied: {mcp_url}")
     print("  Live tool calls from Gemini will appear below.")
     print("  Press [Enter] anytime to return to CLI command prompt...")
     print("=" * 66)
     try:
-        webbrowser.open("https://gemini.google.com/")
+        webbrowser.open(GEMINI_WEB_URL)
     except Exception:
         pass
 
@@ -410,49 +378,13 @@ def enter_web_mode(state: ServerState, mcp_url: str) -> None:
     print("[*] Returned to CLI mode.\n")
 
 
-def select_model(arg_str: str, config: dict) -> None:
-    """Interactive /model selector."""
-    if arg_str:
-        config["model"] = arg_str
-        save_json_file("config.json", config)
-        print(f"[+] Active CLI model set to: {arg_str}")
-        return
-
-    api_key = str(config.get("gemini_api_key", ""))
-    models = fetch_available_models(api_key)
-    current = config.get("model", DEFAULT_MODELS[1])
-
-    print("\nAvailable Gemini models:")
-    for idx, name in enumerate(models, start=1):
-        marker = "*" if name == current else " "
-        print(f"  {marker} {idx:>2}. {name}")
-    print()
-
-    choice = input("Select model number or name (Enter to keep current): ").strip()
-    if not choice:
-        return
-    if choice.isdigit() and 1 <= int(choice) <= len(models):
-        chosen = models[int(choice) - 1]
-    else:
-        chosen = choice
-
-    config["model"] = chosen
-    save_json_file("config.json", config)
-    print(f"[+] Active CLI model set to: {chosen}")
-    if not api_key:
-        ensure_gemini_api_key(config)
-
-
-def handle_input(
+def handle_command(
     raw: str,
     state: ServerState,
     sessions: dict[str, dict],
-    config: dict,
-    history: list[dict],
-    pending_images: list[Path],
     mcp_url: str,
 ) -> bool:
-    """Handle slash commands, drag-and-drop paths, or direct CLI chat prompts."""
+    """Handle slash commands or drag-and-drop file paths. Returns False to exit."""
     line = raw.strip()
     if not line:
         return True
@@ -462,19 +394,9 @@ def handle_input(
         if candidate.startswith("& "):
             candidate = candidate[2:].strip().strip('"').strip("'")
         if Path(candidate).is_file():
-            attach_file(candidate, state, pending_images)
-            return True
-
-        api_key = ensure_gemini_api_key(config)
-        if not api_key:
-            print("[*] Tip: Use /web to vibe-code on gemini.google.com, or /apikey to chat here.")
-            return True
-
-        model = config.get("model", DEFAULT_MODELS[1])
-        imgs = list(pending_images)
-        pending_images.clear()
-        reply = send_chat_message(line, model, api_key, history, state, attached_images=imgs)
-        print(f"\n[{model}]\n{reply}\n")
+            attach_file(candidate, state)
+        else:
+            print("Type /help for commands (/folder, /session, /exec, /web), or drag & drop a file.")
         return True
 
     try:
@@ -496,26 +418,6 @@ def handle_input(
             return False
         return True
 
-    if cmd == "/model":
-        select_model(arg_str, config)
-        return True
-
-    if cmd == "/apikey":
-        if arg_str:
-            config["gemini_api_key"] = arg_str
-            save_json_file("config.json", config)
-            print("[+] Gemini API key saved.")
-        else:
-            config.pop("gemini_api_key", None)
-            ensure_gemini_api_key(config)
-        return True
-
-    if cmd == "/new":
-        history.clear()
-        pending_images.clear()
-        print("[+] CLI chat history cleared.")
-        return True
-
     if cmd == "/web":
         enter_web_mode(state, mcp_url)
         return True
@@ -524,17 +426,17 @@ def handle_input(
         if not arg_str:
             print("Usage: /attach <file_path>  (or drag & drop a file into this window)")
             return True
-        attach_file(arg_str, state, pending_images)
+        attach_file(arg_str, state)
         return True
 
     if cmd == "/clear":
         os.system("cls" if os.name == "nt" else "clear")
         print_banner()
-        print_status(state, mcp_url, config)
+        print_status(state, mcp_url)
         return True
 
     if cmd == "/status":
-        print_status(state, mcp_url, config)
+        print_status(state, mcp_url)
         return True
 
     if cmd == "/url":
@@ -549,7 +451,7 @@ def handle_input(
             return True
         new_root = state.set_root(Path(arg_str))
         sessions[state.session_name] = {"root": str(new_root), "allow_exec": state.is_exec_enabled()}
-        save_json_file("sessions.json", sessions)
+        save_sessions(sessions)
         print(f"[+] Switched workspace -> {new_root} (MCP URL unchanged)")
         return True
 
@@ -576,7 +478,7 @@ def handle_input(
                 print("[!] Cannot delete the currently active session.")
             elif target in sessions:
                 del sessions[target]
-                save_json_file("sessions.json", sessions)
+                save_sessions(sessions)
                 print(f"[+] Deleted session '{target}'.")
             else:
                 print(f"[!] Session '{target}' not found.")
@@ -595,7 +497,7 @@ def handle_input(
             state.session_name = target_name
             resolved = state.set_root(chosen)
             sessions[target_name] = {"root": str(resolved), "allow_exec": state.is_exec_enabled()}
-            save_json_file("sessions.json", sessions)
+            save_sessions(sessions)
             print(f"[+] Created & switched to session '{target_name}' -> {resolved}")
         return True
 
@@ -611,7 +513,7 @@ def handle_input(
             "root": str(state.get_root()),
             "allow_exec": state.is_exec_enabled(),
         }
-        save_json_file("sessions.json", sessions)
+        save_sessions(sessions)
         print(f"[+] run_command is now {'ON' if state.is_exec_enabled() else 'OFF'}.")
         return True
 
@@ -646,7 +548,7 @@ def handle_input(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="gemini-mcp",
-        description="Interactive vibe-coding CLI & Gemini Web MCP bridge (by Fikus & Hydrogen).",
+        description="Local PC files MCP bridge for Gemini Web (by Fikus & Hydrogen).",
     )
     parser.add_argument("path", nargs="?", help="Folder path to expose to Gemini")
     parser.add_argument("--root", dest="root_flag", help="Folder path (alternative to positional path)")
@@ -655,6 +557,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token", help="ngrok authtoken (saved for future runs)")
     parser.add_argument("--allow-exec", action="store_true", help="Enable run_command tool")
     parser.add_argument("--no-tunnel", action="store_true", help="Run local MCP server only")
+    parser.add_argument("--no-open", action="store_true", help="Do not auto-open gemini.google.com on startup")
     parser.add_argument("--no-update-check", action="store_true", help="Skip GitHub update check")
     return parser.parse_args()
 
@@ -677,8 +580,7 @@ def main() -> int:
             print("[!] Cancelled: ngrok authtoken is required for public HTTPS URL.")
             return 1
 
-    sessions = load_json_file("sessions.json")
-    config = load_json_file("config.json")
+    sessions = load_sessions()
     state = resolve_initial_state(args, sessions)
 
     print(f"\n[+] Starting MCP server on http://127.0.0.1:{args.port}/mcp ...")
@@ -718,19 +620,24 @@ def main() -> int:
             if copy_to_clipboard(mcp_url):
                 print("[+] MCP URL copied to clipboard!")
 
-        print_status(state, mcp_url, config)
-        print("Ready! Paste URL into Gemini Connected Apps (+), type /web, or /model to chat here.")
-        print("Type /help for all commands.\n")
+        print_status(state, mcp_url)
 
-        history: list[dict] = []
-        pending_images: list[Path] = []
+        if not args.no_open:
+            print(f"[+] Opening {GEMINI_WEB_URL} in your browser...")
+            try:
+                webbrowser.open(GEMINI_WEB_URL)
+            except Exception:
+                pass
+
+        print("Paste the URL into Gemini -> Settings -> Connected Apps -> + (Next -> Connect).")
+        print("Type /help for commands (/folder, /session, /exec, /web, /logs, /exit).\n")
+
         while thread.is_alive() and (ngrok_proc is None or ngrok_proc.poll() is None):
             try:
-                model_tag = config.get("model", DEFAULT_MODELS[1])
-                raw = input(f"gemini-mcp [{state.session_name} | {model_tag}]> ")
+                raw = input(f"gemini-mcp [{state.session_name}]> ")
             except EOFError:
                 break
-            if not handle_input(raw, state, sessions, config, history, pending_images, mcp_url):
+            if not handle_command(raw, state, sessions, mcp_url):
                 break
         return 0
 
